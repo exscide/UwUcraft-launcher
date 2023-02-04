@@ -3,6 +3,9 @@ name = "uwucraft-launcher"
 version = "0.1.1"
 edition = "2021"
 
+[profile.release]
+strip = true
+
 [dependencies]
 git2 = "0.16.1"
 walkdir = "2"
@@ -11,5 +14,5 @@ reqwest = { version = "0.11", features = ["stream"] }
 futures-util = "0.3.26"
 indicatif = "0.17.3"
 futures-lite = "1.12.0"
-zip = "0.6.4"
-tokio = { version = "1.13.0", features = ["full"] }
+zip = { version = "0.6.4", default-features = false, features = ["deflate"]}
+tokio = { version = "1.13.0", features = ["macros", "rt-multi-thread"] }
