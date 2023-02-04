@@ -129,7 +129,7 @@ pub fn do_merge<'a>(
 	repo: &'a Repository,
 	remote_branch: &str,
 	fetch_commit: git2::AnnotatedCommit<'a>,
-) -> Result<(), git2::Error> {
+) -> Result<bool, git2::Error> {
 	// 1. do a merge analysis
 	let analysis = repo.merge_analysis(&[&fetch_commit])?;
 
@@ -161,12 +161,14 @@ pub fn do_merge<'a>(
 				))?;
 			}
 		};
+		Ok(true)
 	} else if analysis.0.is_normal() {
 		// do a normal merge
 		let head_commit = repo.reference_to_annotated_commit(&repo.head()?)?;
 		normal_merge(&repo, &head_commit, &fetch_commit)?;
+		Ok(true)
 	} else {
 		println!("Nothing to do...");
+		Ok(false)
 	}
-	Ok(())
 }

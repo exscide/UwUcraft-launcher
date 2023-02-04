@@ -15,7 +15,7 @@ mod download;
 const REPO_URL: &'static str = "https://github.com/exscide/UwUcraft";
 
 
-fn update(path: &Path) -> Result<(), String> {
+fn update(path: &Path) -> Result<bool, String> {
 	// fetch / update repo
 
 	let repo = match Repository::open(path) {
@@ -39,10 +39,10 @@ fn update(path: &Path) -> Result<(), String> {
 
 	let fetch_commit = pull::do_fetch(&repo, &["master"], &mut remote)
 		.or(Err(String::from("Unable to fetch commit")))?;
-	pull::do_merge(&repo, "master", fetch_commit)
+	let has_changed = pull::do_merge(&repo, "master", fetch_commit)
 		.or(Err(String::from("Unable to merge")))?;
 
-	Ok(())
+	Ok(has_changed)
 }
 
 fn download_launcher(dest: &Path) -> Result<(), String> {
@@ -105,7 +105,7 @@ fn launch_game(base: PathBuf) -> Result<(), String> {
 	Ok(())
 }
 
-fn apply_patches(src: &Path, dst: &Path) -> Result<(), String> {
+fn apply_patches(src: &Path, dst: &Path, overwrite: bool) -> Result<(), String> {
 	let reg: Vec<PathBuf> = std::fs::read_to_string(src.join("overwrite.txt"))
 			.or(Err(String::from("Unable read overwrite.txt")))?
 			.lines()
@@ -119,24 +119,34 @@ fn apply_patches(src: &Path, dst: &Path) -> Result<(), String> {
 			})
 			.collect();
 
-	// delete all files to be overwritten
-	for item in &reg {
-		let torm = dst.join(item);
+	let mut deleted_count = 0u32;
 
-		if torm.is_dir() {
-			//println!("deleting {:?}", torm);
-			std::fs::remove_dir_all(&torm)
-				.or(Err(String::from(format!("Unable to delete {:?}", &torm))))?;
-		} else if torm.is_file() {
-			//println!("deleting {:?}", torm);
-			std::fs::remove_file(&torm)
-				.or(Err(String::from(format!("Unable to delete {:?}", &torm))))?;
-		} else {
-			//println!("missing  {:?}", torm);
+	if overwrite {
+		// delete all files to be overwritten
+		for item in &reg {
+			let torm = dst.join(item);
+
+			if torm.is_dir() {
+				deleted_count += WalkDir::new(&torm)
+					.into_iter()
+					.filter_map(|f| f.ok())
+					.filter(|f| f.path() != &torm)
+					.count() as u32;
+
+				std::fs::remove_dir_all(&torm)
+					.or(Err(String::from(format!("Unable to delete {:?}", &torm))))?;
+			} else if torm.is_file() {
+				std::fs::remove_file(&torm)
+					.or(Err(String::from(format!("Unable to delete {:?}", &torm))))?;
+
+				deleted_count += 1;
+			} else {
+				//println!("missing  {:?}", torm);
+			}
 		}
 	}
 
-	let mut copied = 0;
+	let mut copied_count = 0u32;
 
 	for file in WalkDir::new(src).into_iter().filter_map(|file| file.ok()) {
 		if file.path() == src { continue }
@@ -144,22 +154,21 @@ fn apply_patches(src: &Path, dst: &Path) -> Result<(), String> {
 		let item = file.path().strip_prefix(src).unwrap();
 		let dst_file = dst.join(item);
 
+		// if the files doesn't exist, copy it
 		if file.path().is_file() && !&dst_file.exists() {
 			let mut base_dir = dst_file.clone();
 			base_dir.pop();
 
 			if !base_dir.is_dir() {
-				//println!("creating directory {:?}", base_dir);
 				std::fs::create_dir_all(base_dir).unwrap();
 			}
 
 			std::fs::copy(file.path(), &dst_file).unwrap();
-			//println!("copied {:?}", &item);
-			copied += 1;
+			copied_count += 1;
 		}
 	}
 
-	println!("{}{}{}{}", reg.len(), " files deleted, ".green(), copied, " files copied".green());
+	println!("{}{}{}{}", deleted_count, " files deleted, ".green(), copied_count, " files copied".green());
 
 	Ok(())
 }
@@ -186,16 +195,16 @@ async fn main() {
 	instance_path.push("launcher/instances/UwUcraft");
 
 	// update repo
-	match update(&repo_path) {
-		Ok(_) => {},
+	let has_changed = match update(&repo_path) {
+		Ok(a) => {a},
 		Err(e) => {
 			println!("{}", e.black().on_red());
 			return;
 		}
-	}
+	};
 
-	// apply patches from repo
-	match apply_patches(&repo_path, &instance_path) {
+	// apply patches from repo on change
+	match apply_patches(&repo_path, &instance_path, has_changed) {
 		Ok(_) => {},
 		Err(e) => {
 			println!("{}", e.black().on_red());
